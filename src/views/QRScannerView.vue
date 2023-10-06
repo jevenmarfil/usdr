@@ -7,27 +7,35 @@
     </ion-header>
     <ion-content>
       <div>
-        <p>
-          Track function:
-          <select v-model="selected">
-            <option
-              v-for="option in options"
-              :key="option.text"
-              :value="option"
-            >
-              {{ option.text }}
-            </option>
-          </select>
+        <p class="decode-result">
+          Last result: <b>{{ result }}</b>
         </p>
 
-        <qrcode-stream :track="selected.data" @error="logErrors" />
+        <qrcode-stream
+          :paused="paused"
+          @detect="onDetect"
+          @error="onError"
+          @camera-on="resetValidationState"
+        >
+          <div v-if="validationSuccess" class="validation-success">
+            {{ result }}
+          </div>
+
+          <div v-if="validationFailure" class="validation-failure">
+            This is NOT a URL!
+          </div>
+
+          <div v-if="validationPending" class="validation-pending">
+            Long validation in progress...
+          </div>
+        </qrcode-stream>
       </div>
     </ion-content>
   </ion-page>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import {
   IonContent,
   IonHeader,
@@ -37,72 +45,67 @@ import {
 } from "@ionic/vue";
 import { QrcodeStream, QrcodeDropZone, QrcodeCapture } from "vue-qrcode-reader";
 
-//state
-const options: any = ref();
-const selected = ref();
-const logErrors = console.error;
+const isValid = ref(undefined);
+const paused = ref(false);
+const result:any = ref(null);
 
-//methods
-const paintOutline = (detectedCodes: any, ctx: any) => {
-  for (const detectedCode of detectedCodes) {
-    const [firstPoint, ...otherPoints] = detectedCode.cornerPoints;
+const validationPending = computed(
+  () => isValid.value === undefined && paused.value
+);
+const validationSuccess = computed(() => isValid.value === true);
+const validationFailure = computed(() => isValid.value === false);
 
-    ctx.strokeStyle = "red";
+const onError = console.error;
 
-    ctx.beginPath();
-    ctx.moveTo(firstPoint.x, firstPoint.y);
-    for (const { x, y } of otherPoints) {
-      ctx.lineTo(x, y);
-    }
-    ctx.lineTo(firstPoint.x, firstPoint.y);
-    ctx.closePath();
-    ctx.stroke();
-  }
+const resetValidationState = () => {
+  isValid.value = undefined;
 };
 
-const paintBoundingBox = (detectedCodes: any, ctx: any) => {
-  for (const detectedCode of detectedCodes) {
-    const {
-      boundingBox: { x, y, width, height },
-    } = detectedCode;
+const onDetect = async ([firstDetectedCode]: any) => {
+  result.value = firstDetectedCode.rawValue;
+  paused.value = true;
 
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = "#007bff";
-    ctx.strokeRect(x, y, width, height);
+  // pretend it's taking really long
+  await timeout(3000);
+  if (result.value) {
+    isValid.value = result.value.startsWith("http");
   }
+
+  // some more delay, so users have time to read the message
+  await timeout(2000);
+  paused.value = false;
 };
 
-const paintCenterText = (detectedCodes: any, ctx: any) => {
-  for (const detectedCode of detectedCodes) {
-    const { boundingBox, rawValue } = detectedCode;
-
-    const centerX = boundingBox.x + boundingBox.width / 2;
-    const centerY = boundingBox.y + boundingBox.height / 2;
-
-    const fontSize = Math.max(12, (50 * boundingBox.width) / ctx.canvas.width);
-    console.log(boundingBox.width, ctx.canvas.width);
-
-    ctx.font = `bold ${fontSize}px sans-serif`;
-    ctx.textAlign = "center";
-
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "#35495e";
-    ctx.strokeText(detectedCode.rawValue, centerX, centerY);
-
-    ctx.fillStyle = "#5cb984";
-    ctx.fillText(rawValue, centerX, centerY);
-  }
+const timeout = (ms: number) => {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 };
-
-options.value = [
-  { text: "nothing (default)", data: undefined },
-  { text: "outline", data: paintOutline },
-  { text: "centered text", data: paintCenterText },
-  { text: "bounding box", data: paintBoundingBox },
-];
-
-selected.value = options.value[1]
-
 </script>
 
-<style scoped></style>
+<style scoped>
+.validation-success,
+.validation-failure,
+.validation-pending {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+
+  background-color: rgba(255, 255, 255, 0.8);
+  padding: 10px;
+  text-align: center;
+  font-weight: bold;
+  font-size: 1.4rem;
+  color: black;
+
+  display: flex;
+  flex-flow: column nowrap;
+  justify-content: center;
+}
+.validation-success {
+  color: green;
+}
+.validation-failure {
+  color: red;
+}
+</style>
